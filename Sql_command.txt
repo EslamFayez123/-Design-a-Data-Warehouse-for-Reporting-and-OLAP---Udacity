@@ -1,0 +1,367 @@
+put file:///C:/Users/fayez/Desktop/udacityproject2/yelp_academic_dataset_checkin.json @my_json_stage auto_compress=true;
+put file:///C:/Users/fayez/Desktop/udacityproject2/yelp_academic_dataset_review.json @my_json_stage auto_compress=true;
+put file:///C:/Users/fayez/Desktop/udacityproject2/yelp_academic_dataset_tip.json @my_json_stage auto_compress=true;
+put file:///C:/Users/fayez/Desktop/udacityproject2/yelp_academic_dataset_user.json @my_json_stage auto_compress=true;
+put file:///C:/Users/fayez/Desktop/udacityproject2/yelp_academic_dataset_covid_features @my_json_stage auto_compress=true;
+put file:///C:/Users/fayez/Desktop/udacityproject2/yelp_academic_dataset_checkin.json @my_json_stage auto_compress=true;
+
+put file:///C:/Users/fayez/Desktop/udacityproject2/usw00023169-temperature-degreef.csv @my_csv_stage auto_compress=true;
+
+put file:///C:/Users/fayez/Desktop/udacityproject2/usw00023169-las-vegas-mccarran-intl-ap-precipitation-inch.csv @my_csv_stage auto_compress=true;
+
+
+
+create or replace file format mycsvformat type='CSV' compression='auto'
+field_delimiter=',' record_delimiter = '\n'  skip_header=1 error_on_column_count_mismatch=true null_if = ('NULL', 'null') empty_field_as_null = true;
+
+create or replace stage my_csv_stage file_format = mycsvformat;
+
+insert into tables staging schema
+1-
+COPY INTO checkin_tmp FROM @my_json_stage/yelp_academic_dataset_checkin.json file_format=(type=JSON);
+2-
+COPY INTO review_tmp FROM @my_json_stage/yelp_academic_dataset_review.json file_format=(type=JSON);
+3-
+COPY INTO tip_tmp FROM @my_json_stage/yelp_academic_dataset_tip.json file_format=(type=JSON);
+4-
+COPY INTO user_tmp FROM @my_json_stage/yelp_academic_dataset_user.json file_format=(type=JSON);
+5-
+COPY INTO business_tmp FROM @my_json_stage/yelp_academic_dataset_business.json file_format=(type=JSON);
+6-
+COPY INTO covid_tmp FROM @my_json_stage/yelp_academic_dataset_covid_features.json file_format=(type=JSON);
+7-
+COPY INTO temperature_tmp FROM @my_csv_stage/usw00023169-temperature-degreef.csv file_format=(type=CSV field_delimiter=',' skip_header = 1);
+8-
+COPY INTO precipitation_tmp FROM @my_csv_stage/usw00023169-las-vegas-mccarran-intl-ap-precipitation-inch.csv file_format=(type=CSV field_delimiter=',' skip_header = 1);
+
+
+
+Create tables (ods):
+business;
+create or replace table business (
+    business_id string,
+    name string,
+    address string,
+    city string,
+    state string,
+    postal_code string,
+    latitude float,
+    longitude float,
+    stars float,
+    review_count number,
+    is_open number,
+    attributes variant,
+    categories string,
+    hours variant,
+    constraint pk_business_id primary key (business_id)
+);
+insert into business:
+
+insert into business (business_id,name,address,city,state,postal_code,latitude,longitude,stars,
+review_count,is_open,attributes,categories,hours)
+select parse_json($1):business_id,
+parse_json($1):name,
+parse_json($1):address,
+parse_json($1):city,
+parse_json($1):state,
+parse_json($1):postal_code,
+parse_json($1):latitude,
+parse_json($1):longitude,
+parse_json($1):stars,
+parse_json($1):review_count,
+parse_json($1):is_open,
+parse_json($1):attributes,
+parse_json($1):categories,
+parse_json($1):hours
+from udacityproject.staging.business_tmp;
+
+create precipitation
+create or replace table precipitation (
+    date string,
+    precipitation float,
+    precipitation_normal float);
+insert into precipitation
+
+insert into precipitation(date,precipitation,precipitation_normal)
+select to_date(date_tmp,'YYYYMMDD'),
+TRY_CAST(precipitation_tmp as float),
+TRY_CAST(precipitation_normal as float) from udacityproject.staging.precipitation_tmp;
+
+#create checkin
+
+create or replace table checkin (
+    business_id string,
+    date string,
+constraint fk_business_id foreign key (business_id) references business(business_id)
+);
+
+#insert
+
+
+
+INSERT INTO checkin
+SELECT 
+    PARSE_JSON(USERSJSON):business_id,
+    PARSE_JSON(USERSJSON):date
+FROM udacityproject.STAGING.checkin_tmp;
+
+#create table covid
+
+create or replace table covid_features (
+   business_id string,
+   highlights variant,
+   "delivery_or_takeout" variant,
+   "Grubhub_enabled" variant,
+   "Call_To_Action_enabled" variant,
+   "Request_a_Quote_Enabled" variant,
+   "Covid_Banner" variant,
+   "Temporary_Closed_Until" variant,
+   "Virtual_Services_Offered" variant
+);
+
+#insert covid
+
+insert into covid_features("Call_To_Action_enabled","Covid_Banner","Grubhub_enabled","Request_a_Quote_Enabled","Temporary_Closed_Until","Virtual_Services_Offered",
+business_id,"delivery_or_takeout",highlights)
+select
+parse_json($1):"Call To Action enabled",
+parse_json($1):"Covid_Banner",
+parse_json($1):"Grubhub enabled",
+parse_json($1):"Request a Quote Enabled",
+parse_json($1):"Temporary Closed Until",
+parse_json($1):"Virtual Services Offered",
+parse_json($1):business_id,
+parse_json($1):"delivery or takeout",
+parse_json($1):"highlights"
+from udacityproject.staging.covid_tmp;
+
+#create tip 
+
+create or replace table tip (
+    business_id string,
+    compliment_count number,
+    user_id string,
+    date string,
+    text string
+);
+
+#insert
+
+insert into tip(business_id,compliment_count,user_id,date,text)
+select 
+parse_json($1):business_id,
+parse_json($1):compliment_count,
+parse_json($1):user_id,
+parse_json($1):date,
+parse_json($1):text
+from udacityproject.staging.tip_tmp;
+
+#create user 
+
+create or replace table users (
+    user_id string,
+    name string,
+    review_count string,
+    yelping_since timestamp,
+    useful number,
+    funny number,
+    cool number,
+    elite string,
+    friends variant,
+    fans number,
+    average_stars float,
+    compliment_hot number,
+    compliment_more number,
+    compliment_profile number,
+    compliment_cute number,
+    compliment_list number,
+    compliment_note number,
+    compliment_plain number,
+    compliment_cool number,
+    compliment_funny number,
+    compliment_writer number,
+    compliment_photos number
+);
+
+#insert 
+
+insert into users(user_id, name, review_count, yelping_since, useful, 
+                funny, cool, elite, friends, fans, average_stars, 
+                compliment_hot, compliment_more, compliment_profile, 
+                compliment_cute, compliment_list, compliment_note, compliment_plain,
+                compliment_cool, compliment_funny, compliment_writer, compliment_photos)
+select 
+parse_json($1):user_id,
+parse_json($1):name, 
+parse_json($1):review_count,
+parse_json($1):yelping_since,
+parse_json($1):useful, 
+parse_json($1):funny,
+parse_json($1):cool, 
+parse_json($1):elite, 
+parse_json($1):friends, 
+parse_json($1):fans, 
+parse_json($1):average_stars, 
+parse_json($1):compliment_hot, 
+parse_json($1):compliment_more, 
+parse_json($1):compliment_profile, 
+parse_json($1):compliment_cute, 
+parse_json($1):compliment_list, 
+parse_json($1):compliment_note, 
+parse_json($1):compliment_plain, 
+parse_json($1):compliment_cool,
+parse_json($1):compliment_funny, 
+parse_json($1):compliment_writer, 
+parse_json($1):compliment_photos
+from udacityproject.staging.user_tmp;
+
+#create review
+
+create or replace table reviews (
+    review_id string,
+    user_id string,
+    business_id string,
+    stars float,
+    useful number,
+    funny number,
+    cool number,
+    text string, 
+    date string
+);
+
+#insert
+
+insert into reviews(review_id, user_id, business_id, stars, useful, funny, cool, text, date)
+select
+parse_json($1):review_id, 
+parse_json($1):user_id, 
+parse_json($1):business_id, 
+parse_json($1):stars, 
+parse_json($1):useful, 
+parse_json($1):funny, 
+parse_json($1):cool, 
+parse_json($1):text, 
+parse_json($1):date
+from udacityproject.staging.review_tmp;
+
+
+#create table temperature
+
+create or replace table temperature (
+    date string,
+    min float,
+    max float,
+    normal_min float,
+    normal_max float
+);
+
+insert into temperature (date,min,max,normal_min,normal_max)
+select 
+to_date(period_tmp, 'YYYYMMDD'),
+TRY_CAST(min_value_tmp as int),
+TRY_CAST(max_value_tmp as int), 
+TRY_CAST(normal_min_tmp as float),
+TRY_CAST(normal_max_tmp as float)
+from udacityproject.staging.temperature_tmp;
+
+#intergrate yelp and weather
+
+create table fact
+select *
+from temperature as t 
+outer join reviews as r 
+on r.date = t.date
+outer join business as b 
+on b.business_id = r.business_id
+outer join precipitation AS p
+on p.date = r.date
+outer join covid_features as c
+b.business_id = c.business_id
+outer join checkin as ch 
+on b.business_id = ch.business_id
+join tip as i
+on b.business_id = i.business_id
+outer join users as u 
+on u.user_id = r.user_id
+limit 1 ;
+
+ods to warehouse
+
+CREATE TABLE covid_features CLONE udacityproject.ODS.covid_features ;
+
+CREATE TABLE tip CLONE udacityproject.ODS.tip;
+
+CREATE TABLE users CLONE udacityproject.ODS.users ;
+
+CREATE TABLE reviews CLONE udacityproject.ODS.reviews;
+
+CREATE TABLE business CLONE udacityproject.ODS.business ;
+
+CREATE TABLE checkin CLONE udacityproject.ODS.checkin ;
+
+CREATE TABLE precipitation CLONE udacityproject.ODS.precipitation;
+
+CREATE TABLE temperature CLONE udacityproject.ODS.temperature;
+
+CREATE or replace TABLE fact CLONE udacityproject.ODS.fact;
+
+#warehouse(star_schema)
+
+create or replace table climate (
+review_id string,
+max_temperature float,
+precipitation float ,
+date date,
+rating float
+);
+insert into climate select distinct r.review_id,t.max,p.precipitation,r.date,r.stars
+from ods.reviews r ,ods.precipitation p,ods.temperature t
+where (to_date(r.date) = try_to_date(p.date)) and (to_date(r.date) = try_to_date(t.date));
+
+
+
+create or replace table user_dim (
+user_id string,
+username string,
+review_count string,
+user_stars float 
+);
+insert into user_dim select distinct u.user_id,u.name,u.review_count,u.average_stars
+from ods.users u  ;
+
+create or replace table Business_Checkin(
+  business_id string, 
+  business_name string,
+  address string,
+  city string, 
+  state string,
+  business_rating float,
+  checkin_dates string
+);
+insert into Business_Checkin
+select distinct b.business_id, b.name, b.address, b.city, b.state, b.stars, c.date
+from ods.business b, ods.checkin c
+where (b.business_id = c.business_id);
+
+create or replace table Fact_total (
+  business_id string,
+  review_id string,
+  user_id string
+);
+insert into Fact_total select distinct b.business_id, r.review_id, u.user_id
+from ods.business b, ods.reviews r, ods.users u
+where (b.business_id = r.business_id) and (u.user_id = r.user_id); 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
